@@ -1,0 +1,138 @@
+// server.js
+const express = require("express");
+const mongoose = require("mongoose");
+const bodyParser = require("body-parser");
+const stripe = require("stripe")("sk_test_XXXXXXXXXXXXXXXXXXXXXXXX"); // Replace with your Stripe secret key
+const cors = require("cors");
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
+
+// MongoDB Connection
+mongoose
+  .connect("mongodb://localhost:27017/dining_spot", {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("MongoDB Connected"))
+  .catch((err) => console.log(err));
+
+// MongoDB Models
+const ReservationSchema = new mongoose.Schema({
+  name: String,
+  email: String,
+  phone: String,
+  date: String,
+  time: String,
+  guests: Number,
+});
+
+const OrderSchema = new mongoose.Schema({
+  items: [
+    {
+      name: String,
+      price: Number,
+      quantity: Number,
+    },
+  ],
+  total: Number,
+  address: String,
+  phone: String,
+  paymentMethod: String,
+  paymentStatus: { type: String, default: "Pending" },
+  createdAt: { type: Date, default: Date.now },
+});
+
+const Reservation = mongoose.model("Reservation", ReservationSchema);
+const Order = mongoose.model("Order", OrderSchema);
+
+// Routes
+
+// Table Reservation
+app.post("/api/reserve", async (req, res) => {
+  try {
+    const { name, email, phone, date, time, guests } = req.body;
+
+    // Validate input
+    if (!name || !email || !phone || !date || !time || !guests) {
+      return res.status(400).json({ error: "All fields are required." });
+    }
+
+    const reservation = new Reservation({ name, email, phone, date, time, guests });
+    await reservation.save();
+    res.status(201).json({ message: "Reservation successful!", reservation });
+  } catch (error) {
+    res.status(500).json({ error: "An error occurred while reserving the table." });
+  }
+});
+
+// Online Delivery Order
+app.post("/api/order", async (req, res) => {
+  try {
+    const { items, total, address, phone, paymentMethod } = req.body;
+
+    // Validate input
+    if (!items || !total || !address || !phone || !paymentMethod) {
+      return res.status(400).json({ error: "All fields are required." });
+    }
+
+    const order = new Order({ items, total, address, phone, paymentMethod });
+    await order.save();
+    res.status(201).json({ message: "Order placed successfully!", order });
+  } catch (error) {
+    res.status(500).json({ error: "An error occurred while placing the order." });
+  }
+});
+
+// Payment with Stripe (Credit/Debit Card)
+app.post("/api/payment", async (req, res) => {
+  try {
+    const { amount, currency, paymentMethodId } = req.body;
+
+    // Validate input
+    if (!amount || !currency || !paymentMethodId) {
+      return res.status(400).json({ error: "All fields are required." });
+    }
+
+    // Create a payment intent with Stripe
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount,
+      currency,
+      payment_method: paymentMethodId,
+      confirm: true,
+    });
+
+    res.status(200).json({ message: "Payment successful!", paymentIntent });
+  } catch (error) {
+    res.status(500).json({ error: "Payment failed. Please try again." });
+  }
+});
+
+// Get All Reservations
+app.get("/api/reservations", async (req, res) => {
+  try {
+    const reservations = await Reservation.find();
+    res.status(200).json(reservations);
+  } catch (error) {
+    res.status(500).json({ error: "An error occurred while fetching reservations." });
+  }
+});
+
+// Get All Orders
+app.get("/api/orders", async (req, res) => {
+  try {
+    const orders = await Order.find();
+    res.status(200).json(orders);
+  } catch (error) {
+    res.status(500).json({ error: "An error occurred while fetching orders." });
+  }
+});
+
+// Start Server
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
